@@ -153,7 +153,17 @@ export default function App() {
   const [realizedSearchQuery, setRealizedSearchQuery] = useState("");
   const [activeMiddleTab, setActiveMiddleTab] = useState<'lista' | 'simulador'>('lista');
   const [simulationFilters, setSimulationFilters] = useState<Record<string, string>>({});
-  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('hidden_columns_v1');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('hidden_columns_v1', JSON.stringify(hiddenColumns));
+  }, [hiddenColumns]);
   const [combosFilterMatch, setCombosFilterMatch] = useState<string>('todos');
   const [combosFilterOutcome, setCombosFilterOutcome] = useState<string>('todos');
   const [combosSortOrder, setCombosSortOrder] = useState<'original' | 'asc' | 'desc' | 'avg' | 'win-asc' | 'win-desc'>('original');
@@ -166,6 +176,7 @@ export default function App() {
 
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiCustomPrompt, setAiCustomPrompt] = useState<string>("");
   
   const ITEMS_PER_PAGE = 50;
 
@@ -1225,21 +1236,28 @@ export default function App() {
         .filter((c): c is NonNullable<typeof c> => c !== null)
         .filter(c => !hiddenIndices.includes(c.index));
 
-      const comboData = activeCombos.map(c => ({
-        multiplier: c.multiplier.toFixed(2),
-        wager: activeTicket.customWagers?.[c.index] ?? activeTicket.baseWager ?? '100',
-        profit: (parseFloat(activeTicket.customWagers?.[c.index] ?? activeTicket.baseWager ?? '100') * c.multiplier).toFixed(2)
-      }));
+      const comboData = activeCombos.map(c => {
+        const mult = c.totalPayout ? parseFloat(c.totalPayout) : 0;
+        const wager = parseFloat(activeTicket.customWagers?.[c.index] ?? activeTicket.baseWager ?? '100');
+        return {
+          index: c.index,
+          multiplier: mult,
+          wager: wager,
+          profit: wager * mult
+        };
+      });
 
       const prompt = `Soy un apostador y estoy armando una combinada. 
 Mi inversión total pensada es ${smartTotalInvestment || 'N/A'}.
 Tengo ${activeCombos.length} combinaciones posibles activas.
-Aquí hay una muestra de algunas de mis combinaciones, con su cuota, la apuesta asignada y la ganancia proyectada:
-${JSON.stringify(comboData.slice(0, 10), null, 2)}
-... y ${Math.max(0, activeCombos.length - 10)} combinaciones más.
+Aquí está la lista de mis combinaciones (índice, cuota y apuesta actual):
+${JSON.stringify(comboData.map(c => ({ i: c.index, m: c.multiplier, w: c.wager })))}
 
-¿Qué opinas de esta distribución? ¿Debería apostar más a los favoritos (cuotas más bajas) o a las sorpresas (cuotas altas)?
-Por favor, dame un consejo breve y amigable (máximo 2 párrafos) sobre si mi estrategia de distribución de dinero es buena o cómo podría mejorarla. No me des consejos genéricos de "apostar responsablemente", asume que ya lo sé. Enfocate estrictamente en la matemática de las cuotas y mi distribución de la apuesta.`;
+${aiCustomPrompt.trim() ? `Instrucciones adicionales del usuario:\n"${aiCustomPrompt.trim()}"\n` : ''}
+Por favor, analizá mi distribución. Si podés mejorarla (por ejemplo, para asegurar ganancias, o para enfocar más a los favoritos manteniendo una ganancia similar), calculá una nueva distribución de apuestas. Tené muy en cuenta las instrucciones adicionales si las hay.
+Devolvé tu respuesta en formato JSON con la siguiente estructura:
+- "advice": Un consejo breve y amigable (máximo 2 párrafos) sobre por qué elegiste esta nueva distribución. No me des consejos genéricos, enfocate en la matemática.
+- "newWagers": Un arreglo de objetos con "index" y "wager", donde "wager" es tu nueva sugerencia de apuesta para ese índice. Es importante que devuelvas una sugerencia para TODOS los índices que te pasé.`;
 
       const response = await fetch('/api/ai-advisor', {
         method: 'POST',
@@ -1249,9 +1267,20 @@ Por favor, dame un consejo breve y amigable (máximo 2 párrafos) sobre si mi es
 
       const data = await response.json();
       if (data.error) throw new Error(data.error);
+      
       setAiAdvice(data.advice);
-    } catch (err) {
-      setAiAdvice("Uy, hubo un error al consultar a la IA. Intentá de nuevo en un rato.");
+      
+      if (data.newWagers && Array.isArray(data.newWagers)) {
+        const newCustomWagers = { ...(activeTicket.customWagers || {}) };
+        data.newWagers.forEach((w: any) => {
+          if (w && typeof w.index === 'number' && typeof w.wager === 'number') {
+            newCustomWagers[w.index] = w.wager.toString();
+          }
+        });
+        updateActiveTicket(ticket => ({ ...ticket, customWagers: newCustomWagers }));
+      }
+    } catch (err: any) {
+      setAiAdvice(err.message || "Uy, hubo un error al consultar a la IA. Intentá de nuevo en un rato.");
     } finally {
       setIsAiLoading(false);
     }
@@ -1783,7 +1812,13 @@ Por favor, dame un consejo breve y amigable (máximo 2 párrafos) sobre si mi es
                                 </button>
                               </div>
 
-                              <div className="pt-2 border-t border-slate-800 mt-2">
+                              <div className="pt-2 border-t border-slate-800 mt-2 flex flex-col gap-2">
+                                <textarea
+                                  value={aiCustomPrompt}
+                                  onChange={(e) => setAiCustomPrompt(e.target.value)}
+                                  placeholder="Ej: Maximizá la ganancia de la combinación 1 y 2, y el resto solo cubrí la apuesta..."
+                                  className="w-full bg-slate-900 border border-slate-700 rounded-md p-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50 resize-none h-16 placeholder:text-slate-600"
+                                />
                                 <button
                                   onClick={handleGetAiAdvice}
                                   disabled={isAiLoading}

@@ -16,17 +16,45 @@ async function startServer() {
 
   app.post("/api/ai-advisor", async (req, res) => {
     try {
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(400).json({ error: "Falta configurar la API Key de Gemini. Por favor agregala en la sección de 'Secrets' (o .env local) para usar la IA." });
+      }
+      
       const { prompt } = req.body;
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              advice: { 
+                type: "STRING",
+                description: "Consejo breve y amigable" 
+              },
+              newWagers: {
+                type: "ARRAY",
+                description: "Lista de apuestas modificadas",
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    index: { type: "INTEGER" },
+                    wager: { type: "NUMBER" }
+                  }
+                }
+              }
+            },
+            required: ["advice", "newWagers"]
+          }
+        }
       });
 
-      res.json({ advice: response.text });
-    } catch (error) {
+      res.json(JSON.parse(response.text || "{}"));
+    } catch (error: any) {
       console.error("AI Advisor Error:", error);
-      res.status(500).json({ error: "Failed to generate advice" });
+      res.status(500).json({ error: error.message || "Failed to generate advice" });
     }
   });
 
