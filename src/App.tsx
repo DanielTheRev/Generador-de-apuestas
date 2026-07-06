@@ -168,10 +168,10 @@ export default function App() {
   const [combosFilterOutcome, setCombosFilterOutcome] = useState<string>('todos');
   const [combosSortOrder, setCombosSortOrder] = useState<'original' | 'asc' | 'desc' | 'avg' | 'win-asc' | 'win-desc'>('original');
   const [smartDistOpen, setSmartDistOpen] = useState(false);
-  const [smartTotalInvestment, setSmartTotalInvestment] = useState<string>('');
+  const [smartMinInv, setSmartMinInv] = useState<string>('');
+  const [smartMaxInv, setSmartMaxInv] = useState<string>('');
   const [smartMinWager, setSmartMinWager] = useState<string>('100');
   const [smartMinWin, setSmartMinWin] = useState<string>('');
-  const [smartMaxWin, setSmartMaxWin] = useState<string>('');
   const [smartError, setSmartError] = useState<string | null>(null);
 
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
@@ -1076,11 +1076,16 @@ export default function App() {
 
   const handleSmartDistribution = () => {
     setSmartError(null);
-    let inv = parseFloat(smartTotalInvestment);
+    let minInv = parseFloat(smartMinInv) || 0;
+    let maxInv = parseFloat(smartMaxInv) || 0;
     const reqMinW = parseFloat(smartMinWin);
-    const reqMaxW = parseFloat(smartMaxWin);
     const minWager = parseFloat(smartMinWager) || 0;
     
+    if (maxInv > 0 && minInv > maxInv) {
+        setSmartError("La Inversión Mínima no puede ser mayor a la Máxima.");
+        return;
+    }
+
     const hiddenSet = new Set(hiddenIndices);
     const validCombos: { index: number, multiplier: number, wager: number }[] = [];
     
@@ -1104,99 +1109,55 @@ export default function App() {
       if (multiplier >= 1000) {
         const base = minW > 0 ? minW : 10;
         // Bono en forma de U: Mientras más grande la cuota (arriba de 1000), más plata le pone.
-        // Usamos raíz cuadrada para que no explote la inversión si la cuota es de 1 millón.
         w += Math.sqrt(multiplier / 1000) * base * 2;
       }
       return w;
     };
 
-    let targetW = 0;
+    // Paso 1: Intentar cumplir con la Ganancia Mínima (reqMinW)
+    let currentCost = 0;
+    const targetW = isNaN(reqMinW) || reqMinW <= 0 ? 0 : reqMinW;
+    
+    for (const c of validCombos) {
+      c.wager = getWagerForCombo(c.multiplier, targetW, minWager);
+      currentCost += c.wager;
+    }
 
-    if (isNaN(inv) || inv <= 0) {
-      if (isNaN(reqMinW) || reqMinW <= 0) {
-        setSmartError("Debes ingresar una Inversión Total o una Ganancia Mínima para calcular.");
-        return;
-      }
-      
-      // Calcular inversión requerida
-      inv = 0;
-      for (const c of validCombos) {
-        inv += getWagerForCombo(c.multiplier, reqMinW, minWager);
-      }
-      
-      setSmartTotalInvestment(inv.toFixed(2));
-      targetW = reqMinW;
-    } else {
-      let minCostForMinWager = 0;
-      for (const c of validCombos) {
-        minCostForMinWager += getWagerForCombo(c.multiplier, 0, minWager);
-      }
-
-      if (minCostForMinWager > inv) {
-        setSmartError(`La inversión total (${formatARS(inv)}) no alcanza. Costo base con bonos para cuotas altas es: ${formatARS(minCostForMinWager)}.`);
-        return;
-      }
-
-      if (!isNaN(reqMinW) && reqMinW > 0) {
-        targetW = reqMinW;
-        let costReq = 0;
-        for (const c of validCombos) {
-          costReq += getWagerForCombo(c.multiplier, targetW, minWager);
-        }
-        if (costReq > inv) {
-          setSmartError(`Para asegurar ${formatARS(reqMinW)} precisás ${formatARS(costReq)}. Inversión insuficiente.`);
-          return;
-        }
-      } else {
-        // Si no hay mínima requerida, calculamos la ganancia uniforme óptima
-        let low = 0;
-        let high = inv * validCombos[validCombos.length - 1].multiplier;
+    // Paso 2: Si la inversión actual es menor a Inversión Mínima, subimos la ganancia uniforme para llegar al mínimo
+    if (minInv > 0 && currentCost < minInv) {
+        let low = targetW;
+        let high = minInv * validCombos[validCombos.length - 1].multiplier;
+        
         for (let iter = 0; iter < 100; iter++) {
           const mid = (low + high) / 2;
           let cost = 0;
           for (const c of validCombos) {
             cost += getWagerForCombo(c.multiplier, mid, minWager);
           }
-          if (cost > inv) high = mid;
+          if (cost > minInv) high = mid;
           else low = mid;
         }
-        targetW = low;
-      }
-    }
-
-    let currentCost = 0;
-    for (const c of validCombos) {
-      c.wager = getWagerForCombo(c.multiplier, targetW, minWager);
-      currentCost += c.wager;
-    }
-
-    let remainder = inv - currentCost;
-
-    if (remainder > 0.001) {
-      if (!isNaN(reqMaxW) && reqMaxW > targetW) {
+        
+        currentCost = 0;
         for (const c of validCombos) {
-          if (remainder <= 0.001) break;
-          const currentWin = c.wager * c.multiplier;
-          if (currentWin >= reqMaxW) continue;
-
-          const targetAdditionalWin = reqMaxW - currentWin;
-          const requiredAdditionalWager = targetAdditionalWin / c.multiplier;
-          
-          if (remainder >= requiredAdditionalWager) {
-            c.wager += requiredAdditionalWager;
-            remainder -= requiredAdditionalWager;
-          } else {
-            c.wager += remainder;
-            remainder = 0;
-          }
+          c.wager = getWagerForCombo(c.multiplier, low, minWager);
+          currentCost += c.wager;
         }
-      }
+    }
 
-      // Si aún sobra dinero, se lo inyectamos TODO al favorito absoluto (la combinación más probable)
-      // para maximizar la ganancia real sin desperdiciar plata en cuotas gigantescas.
-      if (remainder > 0.001) {
-        validCombos[0].wager += remainder;
-      }
+    // Paso 3: Verificar que no superemos la Inversión Máxima (si hay una definida)
+    if (maxInv > 0 && currentCost > maxInv) {
+       setSmartError(`Para asegurar tus mínimos precisás ${formatARS(currentCost)}, que supera tu Inversión Máxima de ${formatARS(maxInv)}.`);
+       return;
+    }
+
+    // Paso 4: Si sobra presupuesto hasta la Inversión Máxima, lo invertimos en los favoritos absolutos para maximizar ganancia real
+    if (maxInv > 0) {
+        const remainder = maxInv - currentCost;
+        if (remainder > 0.001) {
+            // Le damos todo el sobrante al favorito (la opción de menor cuota) para maximizar la probabilidad de ganar algo grande.
+            validCombos[0].wager += remainder;
+        }
     }
 
     updateActiveTicket(ticket => {
@@ -1211,8 +1172,8 @@ export default function App() {
       };
     });
     
-    if (!smartMinWin || isNaN(reqMinW)) {
-      setSmartMinWin(Math.floor(targetW).toString());
+    if (isNaN(reqMinW) || reqMinW <= 0) {
+       setSmartMinWin(Math.floor(validCombos[0].wager * validCombos[0].multiplier).toString());
     }
     
     setSmartDistOpen(false);
@@ -1248,7 +1209,7 @@ export default function App() {
       });
 
       const prompt = `Soy un apostador y estoy armando una combinada. 
-Mi inversión total pensada es ${smartTotalInvestment || 'N/A'}.
+Mi inversión pensada es de ${smartMinInv || 'N/A'} a ${smartMaxInv || 'N/A'}.
 Tengo ${activeCombos.length} combinaciones posibles activas.
 Aquí está la lista de mis combinaciones (índice, cuota y apuesta actual):
 ${JSON.stringify(comboData.map(c => ({ i: c.index, m: c.multiplier, w: c.wager })))}
@@ -1732,18 +1693,34 @@ Devolvé tu respuesta en formato JSON con la siguiente estructura:
                             <div className="p-3 bg-slate-900 rounded-md border border-slate-700/50 space-y-3">
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1">
-                                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Inversión Total</label>
+                                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Inversión Mínima</label>
                                   <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-md px-2 py-1">
                                     <span className="text-slate-500 text-xs">$</span>
                                     <input 
                                       type="number" 
-                                      value={smartTotalInvestment}
-                                      onChange={(e) => setSmartTotalInvestment(e.target.value)}
+                                      value={smartMinInv}
+                                      onChange={(e) => setSmartMinInv(e.target.value)}
                                       placeholder="Auto"
                                       className="bg-transparent text-slate-200 text-xs w-full focus:outline-none placeholder-emerald-700/50"
                                     />
                                   </div>
                                 </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Inversión Máxima</label>
+                                  <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-md px-2 py-1">
+                                    <span className="text-slate-500 text-xs">$</span>
+                                    <input 
+                                      type="number" 
+                                      value={smartMaxInv}
+                                      onChange={(e) => setSmartMaxInv(e.target.value)}
+                                      placeholder="Auto"
+                                      className="bg-transparent text-slate-200 text-xs w-full focus:outline-none placeholder-emerald-700/50"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1">
                                   <label className="text-[10px] text-slate-400 uppercase font-semibold">Ganancia Mínima</label>
                                   <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-md px-2 py-1">
@@ -1757,9 +1734,6 @@ Devolvé tu respuesta en formato JSON con la siguiente estructura:
                                     />
                                   </div>
                                 </div>
-                              </div>
-                              
-                              <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1">
                                   <label className="text-[10px] text-slate-400 uppercase font-semibold">Apuesta Mínima</label>
                                   <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-md px-2 py-1">
@@ -1773,22 +1747,10 @@ Devolvé tu respuesta en formato JSON con la siguiente estructura:
                                     />
                                   </div>
                                 </div>
-                                <div className="space-y-1">
-                                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Ganancia Máxima</label>
-                                  <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-md px-2 py-1">
-                                    <span className="text-slate-500 text-xs">$</span>
-                                    <input 
-                                      type="number" 
-                                      value={smartMaxWin}
-                                      onChange={(e) => setSmartMaxWin(e.target.value)}
-                                      placeholder="Auto"
-                                      className="bg-transparent text-slate-200 text-xs w-full focus:outline-none placeholder-emerald-700/50"
-                                    />
-                                  </div>
-                                </div>
                               </div>
                               <p className="text-[10px] text-slate-500 leading-tight">
-                                Dejá vacío <span className="text-slate-400">Inversión Total</span> para calcular la inversión necesaria según la <span className="text-slate-400">Ganancia Mínima</span>. Dejá vacío <span className="text-slate-400">Ganancia Mínima</span> para optimizar la ganancia según la Inversión Total.
+                                Definí cuánto querés invertir como mínimo y máximo, y cuánto esperás ganar como base.
+
                               </p>
 
                               {smartError && (
