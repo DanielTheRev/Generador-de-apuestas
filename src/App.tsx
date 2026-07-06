@@ -1204,6 +1204,15 @@ export default function App() {
     setSmartDistOpen(false);
   };
 
+  const handleResetSmartDistribution = () => {
+    updateActiveTicket(ticket => ({
+      ...ticket,
+      customWagers: {},
+      lockedWagers: []
+    }));
+    setSmartError(null);
+  };
+
   const toggleStar = (comboData: NonNullable<ReturnType<typeof getCombinationAtIndex>>, e: React.MouseEvent) => {
     e.stopPropagation();
     
@@ -1715,12 +1724,20 @@ export default function App() {
                                 </div>
                               )}
 
-                              <button 
-                                onClick={handleSmartDistribution}
-                                className="w-full bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-md text-xs font-semibold uppercase hover:bg-emerald-500/30 border border-emerald-500/50 transition-colors"
-                              >
-                                Calcular y Repartir
-                              </button>
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={handleSmartDistribution}
+                                  className="flex-1 bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-md text-xs font-semibold uppercase hover:bg-emerald-500/30 border border-emerald-500/50 transition-colors"
+                                >
+                                  Calcular y Repartir
+                                </button>
+                                <button 
+                                  onClick={handleResetSmartDistribution}
+                                  className="flex-1 bg-slate-800 text-slate-400 px-3 py-1.5 rounded-md text-xs font-semibold uppercase hover:bg-slate-700 hover:text-slate-300 border border-slate-700 transition-colors"
+                                >
+                                  Desactivar
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
