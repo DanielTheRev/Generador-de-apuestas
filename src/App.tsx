@@ -168,10 +168,8 @@ export default function App() {
   const [combosFilterOutcome, setCombosFilterOutcome] = useState<string>('todos');
   const [combosSortOrder, setCombosSortOrder] = useState<'original' | 'asc' | 'desc' | 'avg' | 'win-asc' | 'win-desc'>('original');
   const [smartDistOpen, setSmartDistOpen] = useState(false);
-  const [smartMinInv, setSmartMinInv] = useState<string>('');
-  const [smartMaxInv, setSmartMaxInv] = useState<string>('');
+  const [smartTargetWin, setSmartTargetWin] = useState<string>('');
   const [smartMinWager, setSmartMinWager] = useState<string>('100');
-  const [smartMinWin, setSmartMinWin] = useState<string>('');
   const [smartError, setSmartError] = useState<string | null>(null);
 
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
@@ -1076,13 +1074,11 @@ export default function App() {
 
   const handleSmartDistribution = () => {
     setSmartError(null);
-    let minInv = parseFloat(smartMinInv) || 0;
-    let maxInv = parseFloat(smartMaxInv) || 0;
-    const reqMinW = parseFloat(smartMinWin);
+    const targetWin = parseFloat(smartTargetWin);
     const minWager = parseFloat(smartMinWager) || 0;
     
-    if (maxInv > 0 && minInv > maxInv) {
-        setSmartError("La Inversión Mínima no puede ser mayor a la Máxima.");
+    if (isNaN(targetWin) || targetWin <= 0) {
+        setSmartError("Debes ingresar una Ganancia Objetivo mayor a 0.");
         return;
     }
 
@@ -1106,58 +1102,12 @@ export default function App() {
 
     const getWagerForCombo = (multiplier: number, target: number, minW: number) => {
       let w = Math.max(minW, target / multiplier);
-      if (multiplier >= 1000) {
-        const base = minW > 0 ? minW : 10;
-        // Bono en forma de U: Mientras más grande la cuota (arriba de 1000), más plata le pone.
-        w += Math.sqrt(multiplier / 1000) * base * 2;
-      }
-      return w;
+      // Opcional: redondear a 2 decimales para evitar números raros
+      return Math.ceil(w * 100) / 100;
     };
 
-    // Paso 1: Intentar cumplir con la Ganancia Mínima (reqMinW)
-    let currentCost = 0;
-    const targetW = isNaN(reqMinW) || reqMinW <= 0 ? 0 : reqMinW;
-    
     for (const c of validCombos) {
-      c.wager = getWagerForCombo(c.multiplier, targetW, minWager);
-      currentCost += c.wager;
-    }
-
-    // Paso 2: Si la inversión actual es menor a Inversión Mínima, subimos la ganancia uniforme para llegar al mínimo
-    if (minInv > 0 && currentCost < minInv) {
-        let low = targetW;
-        let high = minInv * validCombos[validCombos.length - 1].multiplier;
-        
-        for (let iter = 0; iter < 100; iter++) {
-          const mid = (low + high) / 2;
-          let cost = 0;
-          for (const c of validCombos) {
-            cost += getWagerForCombo(c.multiplier, mid, minWager);
-          }
-          if (cost > minInv) high = mid;
-          else low = mid;
-        }
-        
-        currentCost = 0;
-        for (const c of validCombos) {
-          c.wager = getWagerForCombo(c.multiplier, low, minWager);
-          currentCost += c.wager;
-        }
-    }
-
-    // Paso 3: Verificar que no superemos la Inversión Máxima (si hay una definida)
-    if (maxInv > 0 && currentCost > maxInv) {
-       setSmartError(`Para asegurar tus mínimos precisás ${formatARS(currentCost)}, que supera tu Inversión Máxima de ${formatARS(maxInv)}.`);
-       return;
-    }
-
-    // Paso 4: Si sobra presupuesto hasta la Inversión Máxima, lo invertimos en los favoritos absolutos para maximizar ganancia real
-    if (maxInv > 0) {
-        const remainder = maxInv - currentCost;
-        if (remainder > 0.001) {
-            // Le damos todo el sobrante al favorito (la opción de menor cuota) para maximizar la probabilidad de ganar algo grande.
-            validCombos[0].wager += remainder;
-        }
+      c.wager = getWagerForCombo(c.multiplier, targetWin, minWager);
     }
 
     updateActiveTicket(ticket => {
@@ -1171,10 +1121,6 @@ export default function App() {
         lockedWagers: [] 
       };
     });
-    
-    if (isNaN(reqMinW) || reqMinW <= 0) {
-       setSmartMinWin(Math.floor(validCombos[0].wager * validCombos[0].multiplier).toString());
-    }
     
     setSmartDistOpen(false);
   };
@@ -1209,7 +1155,7 @@ export default function App() {
       });
 
       const prompt = `Soy un apostador y estoy armando una combinada. 
-Mi inversión pensada es de ${smartMinInv || 'N/A'} a ${smartMaxInv || 'N/A'}.
+Mi ganancia objetivo es ${smartTargetWin || 'N/A'}.
 Tengo ${activeCombos.length} combinaciones posibles activas.
 Aquí está la lista de mis combinaciones (índice, cuota y apuesta actual):
 ${JSON.stringify(comboData.map(c => ({ i: c.index, m: c.multiplier, w: c.wager })))}
@@ -1707,43 +1653,14 @@ Devolvé tu respuesta en formato JSON con la siguiente estructura:
                             <div className="p-3 bg-slate-900 rounded-md border border-slate-700/50 space-y-3">
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1">
-                                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Inversión Mínima</label>
+                                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Ganancia Objetivo</label>
                                   <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-md px-2 py-1">
                                     <span className="text-slate-500 text-xs">$</span>
                                     <input 
                                       type="number" 
-                                      value={smartMinInv}
-                                      onChange={(e) => setSmartMinInv(e.target.value)}
-                                      placeholder="Auto"
-                                      className="bg-transparent text-slate-200 text-xs w-full focus:outline-none placeholder-emerald-700/50"
-                                    />
-                                  </div>
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Inversión Máxima</label>
-                                  <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-md px-2 py-1">
-                                    <span className="text-slate-500 text-xs">$</span>
-                                    <input 
-                                      type="number" 
-                                      value={smartMaxInv}
-                                      onChange={(e) => setSmartMaxInv(e.target.value)}
-                                      placeholder="Auto"
-                                      className="bg-transparent text-slate-200 text-xs w-full focus:outline-none placeholder-emerald-700/50"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                              
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Ganancia Mínima</label>
-                                  <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-md px-2 py-1">
-                                    <span className="text-slate-500 text-xs">$</span>
-                                    <input 
-                                      type="number" 
-                                      value={smartMinWin}
-                                      onChange={(e) => setSmartMinWin(e.target.value)}
-                                      placeholder="Auto"
+                                      value={smartTargetWin}
+                                      onChange={(e) => setSmartTargetWin(e.target.value)}
+                                      placeholder="Ej: 100000"
                                       className="bg-transparent text-slate-200 text-xs w-full focus:outline-none placeholder-emerald-700/50"
                                     />
                                   </div>
@@ -1763,10 +1680,8 @@ Devolvé tu respuesta en formato JSON con la siguiente estructura:
                                 </div>
                               </div>
                               <p className="text-[10px] text-slate-500 leading-tight">
-                                Definí cuánto querés invertir como mínimo y máximo, y cuánto esperás ganar como base.
-
+                                Definí cuánto querés ganar como objetivo. El sistema elegirá automáticamente la apuesta necesaria para llegar a ese monto, respetando la apuesta mínima.
                               </p>
-
                               {smartError && (
                                 <div className="text-[11px] text-red-400 bg-red-500/10 p-2 rounded border border-red-500/20">
                                   {smartError}
