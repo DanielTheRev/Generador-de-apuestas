@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Trash2, Copy, ChevronLeft, ChevronRight, Check, Play, AlertTriangle, Star, Plus, X, ChevronDown, ChevronUp, GripVertical, Edit2, Search, Menu, Sidebar, EyeOff, Eye, Wand2, Lock, Unlock, Sparkles, Bot, Loader2 } from 'lucide-react';
+import { Trash2, Calculator, Copy, ChevronLeft, ChevronRight, Check, Play, AlertTriangle, Star, Plus, X, ChevronDown, ChevronUp, GripVertical, Edit2, Search, Menu, Sidebar, EyeOff, Eye, Wand2, Lock, Unlock, Sparkles, Bot, Loader2 } from 'lucide-react';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
 
 const formatARS = (value: number) => {
@@ -1650,15 +1650,29 @@ Devolvé tu respuesta en formato JSON con la siguiente estructura:
                           Simulador
                         </button>
                       </div>
-                      <div className="flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded text-[10px] font-mono border border-emerald-500/20">
-                        <span>Apuesta base: $</span>
-                        <input
-                          type="number"
-                          value={activeTicket.baseWager || '100'}
-                          onChange={(e) => updateActiveTicket(t => ({ ...t, baseWager: e.target.value }))}
-                          className="bg-transparent w-12 focus:outline-none placeholder-emerald-400/50"
-                          placeholder="100"
-                        />
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded text-[10px] font-mono border border-emerald-500/20">
+                          <span>Apuesta base: $</span>
+                          <input
+                            type="number"
+                            value={activeTicket.baseWager !== undefined ? activeTicket.baseWager : '100'}
+                            onChange={(e) => updateActiveTicket(t => ({ ...t, baseWager: e.target.value }))}
+                            className="bg-transparent w-12 focus:outline-none placeholder-emerald-400/50"
+                            placeholder="100"
+                          />
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (confirm('¿Poner todas las apuestas a $0 para calcular inversión manual?')) {
+                               updateActiveTicket(t => ({ ...t, baseWager: '0', customWagers: {}, lockedWagers: [] }));
+                            }
+                          }}
+                          className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] border border-slate-700 transition-colors"
+                          title="Modo Calculadora: empezar todo en 0 y sumar manualmente"
+                        >
+                          <Calculator className="w-3 h-3" />
+                          A $0
+                        </button>
                       </div>
                     </div>
                     {activeMiddleTab === 'lista' && (
