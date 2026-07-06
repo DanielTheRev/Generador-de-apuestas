@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Trash2, Copy, ChevronLeft, ChevronRight, Check, Play, AlertTriangle, Star, Plus, X, ChevronDown, ChevronUp, GripVertical, Edit2, Search, Menu, Sidebar, EyeOff, Eye, Wand2, Lock, Unlock } from 'lucide-react';
+import { Trash2, Copy, ChevronLeft, ChevronRight, Check, Play, AlertTriangle, Star, Plus, X, ChevronDown, ChevronUp, GripVertical, Edit2, Search, Menu, Sidebar, EyeOff, Eye, Wand2, Lock, Unlock, Sparkles, Bot, Loader2 } from 'lucide-react';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
 
 const formatARS = (value: number) => {
@@ -163,6 +163,9 @@ export default function App() {
   const [smartMinWin, setSmartMinWin] = useState<string>('');
   const [smartMaxWin, setSmartMaxWin] = useState<string>('');
   const [smartError, setSmartError] = useState<string | null>(null);
+
+  const [aiAdvice, setAiAdvice] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
   
   const ITEMS_PER_PAGE = 50;
 
@@ -1213,6 +1216,47 @@ export default function App() {
     setSmartError(null);
   };
 
+  const handleGetAiAdvice = async () => {
+    setIsAiLoading(true);
+    setAiAdvice(null);
+    try {
+      const activeCombos = Array.from({ length: totalCombinations })
+        .map((_, i) => getCombinationAtIndex(i))
+        .filter((c): c is NonNullable<typeof c> => c !== null)
+        .filter(c => !hiddenIndices.includes(c.index));
+
+      const comboData = activeCombos.map(c => ({
+        multiplier: c.multiplier.toFixed(2),
+        wager: activeTicket.customWagers?.[c.index] ?? activeTicket.baseWager ?? '100',
+        profit: (parseFloat(activeTicket.customWagers?.[c.index] ?? activeTicket.baseWager ?? '100') * c.multiplier).toFixed(2)
+      }));
+
+      const prompt = `Soy un apostador y estoy armando una combinada. 
+Mi inversión total pensada es ${smartTotalInvestment || 'N/A'}.
+Tengo ${activeCombos.length} combinaciones posibles activas.
+Aquí hay una muestra de algunas de mis combinaciones, con su cuota, la apuesta asignada y la ganancia proyectada:
+${JSON.stringify(comboData.slice(0, 10), null, 2)}
+... y ${Math.max(0, activeCombos.length - 10)} combinaciones más.
+
+¿Qué opinas de esta distribución? ¿Debería apostar más a los favoritos (cuotas más bajas) o a las sorpresas (cuotas altas)?
+Por favor, dame un consejo breve y amigable (máximo 2 párrafos) sobre si mi estrategia de distribución de dinero es buena o cómo podría mejorarla. No me des consejos genéricos de "apostar responsablemente", asume que ya lo sé. Enfocate estrictamente en la matemática de las cuotas y mi distribución de la apuesta.`;
+
+      const response = await fetch('/api/ai-advisor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      setAiAdvice(data.advice);
+    } catch (err) {
+      setAiAdvice("Uy, hubo un error al consultar a la IA. Intentá de nuevo en un rato.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
   const toggleStar = (comboData: NonNullable<ReturnType<typeof getCombinationAtIndex>>, e: React.MouseEvent) => {
     e.stopPropagation();
     
@@ -1737,6 +1781,24 @@ export default function App() {
                                 >
                                   Desactivar
                                 </button>
+                              </div>
+
+                              <div className="pt-2 border-t border-slate-800 mt-2">
+                                <button
+                                  onClick={handleGetAiAdvice}
+                                  disabled={isAiLoading}
+                                  className="w-full flex items-center justify-center gap-2 bg-indigo-500/20 text-indigo-400 px-3 py-2 rounded-md text-xs font-semibold uppercase hover:bg-indigo-500/30 border border-indigo-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {isAiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                  {isAiLoading ? 'Consultando IA...' : 'Analizar con IA'}
+                                </button>
+                                
+                                {aiAdvice && (
+                                  <div className="mt-3 p-3 bg-indigo-950/30 border border-indigo-500/30 rounded-md text-[11px] text-indigo-200 leading-relaxed flex gap-3">
+                                    <Bot className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
+                                    <div className="whitespace-pre-wrap">{aiAdvice}</div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
